@@ -1,0 +1,84 @@
+---
+title: "README"
+format: gfm
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r,setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  # comment = "#>",
+  fig.width = 7,
+  fig.height = 7,
+  dpi = 150,
+  fig.path = "figures/README-",
+  out.width = "100%"
+)
+```
+
+## NVIDIA GPUs Benchmarking with dorado
+**Devices**:
+
+ - 01 V100
+ 
+ - 04 V100
+ 
+ - 01 L40S
+ 
+ - 01 A100
+ 
+ - 01 T4
+
+**Input dataset:** 80415 Kleb R10 reads
+
+**Setting**:
+ - `dorado 0.4.3` with three models `dna_r10.4.1_e8.2_400bps_fast@v4.2.0`, `dna_r10.4.1_e8.2_400bps_hac@v4.2.0`, and `dna_r10.4.1_e8.2_400bps_sup@v4.2.0`
+
+ - Basecalling for each model is replicated with 100 iterations, see `scripts`
+    - `benchmark.sh`
+    - `collate-logs.py`
+
+**Results**:
+```{r, process-data}
+library(data.table)
+library(tidyverse)
+library(ggplot2)
+library(lubridate)
+library(DT)
+library(kableExtra)
+options(scipen = 9999)
+read_log <- function(x, gpu){
+  fread(x) %>% 
+  mutate(model = str_extract(Filename, "sup|hac|fast")) %>% 
+  mutate(`Elapsed Time` = hms(`Elapsed Time`) %>% as.numeric()) %>% 
+    mutate(gpu=gpu)
+}
+
+v100_1 <- read_log("prom_log.csv", "1-V100")
+v100_4 <- read_log("4-V100-devs.csv", "4-V100")
+T4 <- read_log("T4-logs.csv", "T4")
+L40S <- read_log("log.csv", "L40S")
+A100 <- read_log("A100.csv", "A100")
+
+log <- bind_rows(v100_1, v100_4, T4, L40S, A100)
+stats <- log %>% 
+  mutate(Basecalled = Basecalled/1e6) %>% 
+  group_by(gpu, model) %>% 
+  summarise(mean = mean(Basecalled), median = median(Basecalled), sd = sd(Basecalled))
+
+dt <-  kableExtra::kable(stats, "markdown")
+dt
+```
+
+```{r, plot}
+ggplot(data = log) +
+  geom_boxplot(aes(x = gpu, y = Basecalled, color = gpu)) +
+  facet_wrap(. ~ model) +
+  scale_y_continuous(breaks = seq(0, max(log$Basecalled), by = 10000000), labels = scales::unit_format(unit = "M", scale = 1e-6)) +
+  labs(title = "Speed", y = "Samples/s") +
+  guides(color = "none")
+```
+
